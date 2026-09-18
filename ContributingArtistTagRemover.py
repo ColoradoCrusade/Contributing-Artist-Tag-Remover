@@ -3,7 +3,7 @@ import re
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
-from mutagen.id3 import ID3, ID3NoHeaderError, TPE1, TIT2
+from mutagen import File
 
 
 def parse_and_clean_artists(artist_tag):
@@ -45,7 +45,7 @@ class TaggerApp:
 
   def __init__(self, root):
     self.root = root
-    self.root.title("MP3 Artist & Title Tagger")
+    self.root.title("Universal Audio Artist & Title Tagger")
     self.root.geometry("600x400")
 
     # Instruction Label
@@ -75,7 +75,8 @@ class TaggerApp:
     )
     self.log_area.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
     self.log_area.insert(
-        tk.END, "Ready. Click the button above to begin processing.\n"
+        tk.END,
+        "Ready. Supports MP3, FLAC, M4A, OGG, WAV, AAC, and more.\n",
     )
 
   def log(self, message):
@@ -98,12 +99,14 @@ class TaggerApp:
     ).start()
 
   def process_files(self, folder_path):
+    # Supported audio extensions
+    audio_extensions = (".mp3", ".flac", ".m4a", ".ogg", ".wav", ".aac", ".opus")
     processed_count = 0
     file_count = 0
 
     for root_dir, _, files in os.walk(folder_path):
       for file in files:
-        if file.lower().endswith(".mp3"):
+        if file.lower().endswith(audio_extensions):
           file_count += 1
           full_path = os.path.join(root_dir, file)
           if self.process_single_file(full_path):
@@ -111,7 +114,7 @@ class TaggerApp:
             self.log(f"Updated: {file}")
 
     self.log(
-        f"\n--- Complete! Scanned {file_count} MP3 files. Updated"
+        f"\n--- Complete! Scanned {file_count} audio files. Updated"
         f" {processed_count} files. ---"
     )
     messagebox.showinfo(
@@ -121,31 +124,44 @@ class TaggerApp:
 
   def process_single_file(self, file_path):
     try:
-      audio = ID3(file_path)
-    except (ID3NoHeaderError, Exception):
+      # easy=True standardizes tag keys across MP3, FLAC, M4A, OGG, etc.
+      audio = File(file_path, easy=True)
+      if audio is None:
+        return False
+    except Exception:
       return False
 
-    artist_str = ""
-    if "TPE1" in audio:
-      artist_str = str(audio["TPE1"])
+    # Extract artist safely
+    artist_list = audio.get("artist", [])
+    if not artist_list:
+      return False
+    artist_str = (
+        artist_list[0] if isinstance(artist_list, list) else str(artist_list)
+    )
 
     main_artist, feat_str = parse_and_clean_artists(artist_str)
     if not main_artist:
       return False
 
-    title_str = ""
-    if "TIT2" in audio:
-      title_str = str(audio["TIT2"])
+    # Extract title safely
+    title_list = audio.get("title", [])
+    title_str = (
+        title_list[0]
+        if (isinstance(title_list, list) and title_list)
+        else str(title_list)
+    )
 
     updated = False
 
+    # Cleanly append featuring artists to title if found and not already present
     if feat_str and feat_str.lower() not in title_str.lower():
-      new_title = f"{title_str} ({feat_str})"
-      audio["TIT2"] = TIT2(encoding=3, text=new_title)
+      new_title = f"{title_str} ({feat_str})" if title_str else feat_str
+      audio["title"] = [new_title]
       updated = True
 
+    # Strip supporting artists out of the primary Artist field, leaving only the main artist
     if main_artist != artist_str:
-      audio["TPE1"] = TPE1(encoding=3, text=main_artist)
+      audio["artist"] = [main_artist]
       updated = True
 
     if updated:
