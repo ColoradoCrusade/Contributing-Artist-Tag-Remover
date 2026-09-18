@@ -4,6 +4,7 @@ A Python desktop utility designed to clean up messy ID3 tags in large MP3 music 
 * **Smart Artist Parsing:** Handles comma-separated lists (e.g., `A$AP Rocky, ScHoolboy Q`), semicolon lists, and explicit keywords (`feat.`, `ft.`, `featuring`).
 * **Tag Restructuring:** Safely updates the primary Artist (`TPE1`) tag to just the main artist, and updates the Title (`TIT2`) tag to include featuring artists without duplicating tags.
 * **Graphical User Interface (GUI):** Features a Tkinter window with live operation logs.
+* **Support for MP3, FLAC, M4A, OGG, WAV, and AAC files.
 
 ## Requirements
 * **Python 3.x**
@@ -21,6 +22,6 @@ A Python desktop utility designed to clean up messy ID3 tags in large MP3 music 
 ## Usage
 1. Click the "Select Music Folder & Start" button in the graphical window.
 2. Choose your root music library directory.
-3. Watch the live log as it cleans and saves your MP3 tags.
+3. Watch the live log as it cleans and saves your tags.
 
 # Always back up your files before batch operations!
