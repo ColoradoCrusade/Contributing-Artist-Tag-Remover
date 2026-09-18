@@ -13,6 +13,8 @@ A Python desktop utility designed to clean up messy ID3 tags in large MP3 music 
 ## Installation & Setup
 
 1. Clone or download this repository.
+   ```cmd
+   git clone [https://github.com/ColoradoCrusade/Contributing-Artist-Tag-Remover.git](https://github.com/ColoradoCrusade/Contributing-Artist-Tag-Remover.git)
 2. Install the required Python package via your command line:
    ```cmd
    pip install mutagen
