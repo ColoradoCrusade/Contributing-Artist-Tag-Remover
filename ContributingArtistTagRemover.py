@@ -1,3 +1,4 @@
+# Version 1.1
 import os
 import re
 import threading
@@ -6,20 +7,42 @@ from tkinter import filedialog, messagebox, scrolledtext
 from mutagen import File
 
 
-def parse_and_clean_artists(artist_tag):
+def parse_and_clean_artists(artist_tag, album_artist_tag=""):
   if not artist_tag:
     return "", ""
 
-  artist_tag = artist_tag.strip("; ").strip()
+  clean_tag = artist_tag.strip("; ").strip()
+  clean_album_artist = (
+      album_artist_tag.strip("; ").strip() if album_artist_tag else ""
+  )
+
+  # DYNAMIC PROTECTION:
+  # If the Album Artist exists, has an '&', and matches the start of the track artist
+  # (or equals it), treat that base name as a single protected artist entity.
+  if clean_album_artist and "&" in clean_album_artist:
+    if clean_tag.lower() == clean_album_artist.lower():
+      return clean_tag, ""
+    # Handle cases where track artist has a feature added to the album artist
+    if clean_tag.lower().startswith(clean_album_artist.lower()):
+      # Extract whatever is trailing after the album artist name
+      remainder = clean_tag[len(clean_album_artist) :].strip(" ,;-&")
+      if remainder:
+        # Check if remainder already has feat syntax
+        if not re.search(
+            r"\b(feat\.?|ft\.?|featuring)\b", remainder, re.IGNORECASE
+        ):
+          remainder = f"feat. {remainder}"
+        return clean_album_artist, remainder
+      return clean_tag, ""
 
   # 1. Check for explicit featuring keywords
   feat_match = re.search(
-      r"\b(feat\.?|ft\.?|featuring)\b", artist_tag, re.IGNORECASE
+      r"\b(feat\.?|ft\.?|featuring)\b", clean_tag, re.IGNORECASE
   )
   if feat_match:
     idx = feat_match.start()
-    main_artist = artist_tag[:idx].strip(" ,;-")
-    featured_artists = artist_tag[idx:].strip()
+    main_artist = clean_tag[:idx].strip(" ,;-")
+    featured_artists = clean_tag[idx:].strip()
     featured_artists = re.sub(
         r"\b(feat\.?|ft\.?|featuring)\b",
         "feat.",
@@ -28,9 +51,9 @@ def parse_and_clean_artists(artist_tag):
     )
     return main_artist, featured_artists
 
-  # 2. Handle comma- or semicolon-separated lists
-  if "," in artist_tag or ";" in artist_tag:
-    parts = re.split(r"[,;]", artist_tag)
+  # 2. Handle comma, semicolon, or '&' separated collaborations (e.g., "Bones & Cat Soup")
+  if "," in clean_tag or ";" in clean_tag or "&" in clean_tag:
+    parts = re.split(r"[,;]|\s+&\s+", clean_tag)
     parts = [p.strip() for p in parts if p.strip()]
 
     if len(parts) > 1:
@@ -38,25 +61,26 @@ def parse_and_clean_artists(artist_tag):
       feat_list = ", ".join(parts[1:])
       return main_artist, f"feat. {feat_list}"
 
-  return artist_tag, ""
+  return clean_tag, ""
 
 
 class TaggerApp:
 
   def __init__(self, root):
     self.root = root
-    self.root.title("Universal Audio Artist & Title Tagger")
-    self.root.geometry("600x400")
+    self.root.title("Universal Audio Artist & Title Tagger (Dynamic)")
+    self.root.geometry("600x450")
 
-    # Instruction Label
     self.label = tk.Label(
         root,
-        text="Click below to choose your music library folder:",
+        text=(
+            "Click below to choose your music library folder:\n(Uses Album"
+            " Artist tags to protect band names with '&')"
+        ),
         font=("Arial", 11),
     )
     self.label.pack(pady=10)
 
-    # Browse Button
     self.btn_browse = tk.Button(
         root,
         text="Select Music Folder & Start",
@@ -69,14 +93,13 @@ class TaggerApp:
     )
     self.btn_browse.pack(pady=5)
 
-    # Status / Output Log Text Box
     self.log_area = scrolledtext.ScrolledText(
         root, wrap=tk.WORD, width=70, height=15, font=("Consolas", 9)
     )
     self.log_area.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
     self.log_area.insert(
         tk.END,
-        "Ready. Supports MP3, FLAC, M4A, OGG, WAV, AAC, and more.\n",
+        "Ready. Dynamic Album Artist checking is active.\n",
     )
 
   def log(self, message):
@@ -93,13 +116,11 @@ class TaggerApp:
     self.btn_browse.config(state=tk.DISABLED)
     self.log(f"\n--- Starting scan in: {folder_path} ---")
 
-    # Run in a separate thread so the GUI doesn't freeze
     threading.Thread(
         target=self.process_files, args=(folder_path,), daemon=True
     ).start()
 
   def process_files(self, folder_path):
-    # Supported audio extensions
     audio_extensions = (".mp3", ".flac", ".m4a", ".ogg", ".wav", ".aac", ".opus")
     processed_count = 0
     file_count = 0
@@ -124,14 +145,13 @@ class TaggerApp:
 
   def process_single_file(self, file_path):
     try:
-      # easy=True standardizes tag keys across MP3, FLAC, M4A, OGG, etc.
       audio = File(file_path, easy=True)
       if audio is None:
         return False
     except Exception:
       return False
 
-    # Extract artist safely
+    # Get track artist
     artist_list = audio.get("artist", [])
     if not artist_list:
       return False
@@ -139,11 +159,20 @@ class TaggerApp:
         artist_list[0] if isinstance(artist_list, list) else str(artist_list)
     )
 
-    main_artist, feat_str = parse_and_clean_artists(artist_str)
+    # Get album artist (if available) to cross-reference band names safely
+    album_artist_list = audio.get("albumartist", [])
+    album_artist_str = (
+        album_artist_list[0]
+        if (isinstance(album_artist_list, list) and album_artist_list)
+        else str(album_artist_list)
+    )
+
+    main_artist, feat_str = parse_and_clean_artists(
+        artist_str, album_artist_str
+    )
     if not main_artist:
       return False
 
-    # Extract title safely
     title_list = audio.get("title", [])
     title_str = (
         title_list[0]
@@ -153,13 +182,11 @@ class TaggerApp:
 
     updated = False
 
-    # Cleanly append featuring artists to title if found and not already present
     if feat_str and feat_str.lower() not in title_str.lower():
       new_title = f"{title_str} ({feat_str})" if title_str else feat_str
       audio["title"] = [new_title]
       updated = True
 
-    # Strip supporting artists out of the primary Artist field, leaving only the main artist
     if main_artist != artist_str:
       audio["artist"] = [main_artist]
       updated = True
